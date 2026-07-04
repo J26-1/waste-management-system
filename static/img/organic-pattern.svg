@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-label="Organic waste collection pattern">
+  <rect width="1200" height="800" fill="#dce9df"/>
+  <g fill="none" stroke="#7aac86" stroke-width="3" opacity="0.48">
+    <path d="M86 166c76-74 160-73 235 0 74 71 154 72 226 0 74-73 160-72 235 0 74 71 154 72 226 0"/>
+    <path d="M66 494c76-74 160-73 235 0 74 71 154 72 226 0 74-73 160-72 235 0 74 71 154 72 226 0"/>
+  </g>
+  <g opacity="0.7">
+    <circle cx="210" cy="250" r="76" fill="#f5f7f4"/>
+    <path d="M182 250c35-58 78-63 106-22-39 1-70 15-106 22z" fill="#2f8f5b"/>
+    <path d="M178 260c34 42 82 50 122 18-48-8-80-20-122-18z" fill="#1f7a7a"/>
+    <circle cx="884" cy="206" r="92" fill="#f5f7f4"/>
+    <path d="M832 224c48-90 113-93 158-22-62-2-102 12-158 22z" fill="#2f8f5b"/>
+    <path d="M836 238c44 58 116 70 174 28-72-14-120-27-174-28z" fill="#3766b1"/>
+    <circle cx="416" cy="592" r="86" fill="#f5f7f4"/>
+    <path d="M370 598c44-78 106-85 148-24-60 0-98 14-148 24z" fill="#2f8f5b"/>
+    <path d="M372 612c44 54 109 64 162 26-66-10-106-24-162-26z" fill="#b7791f"/>
+    <circle cx="1004" cy="590" r="72" fill="#f5f7f4"/>
+    <path d="M970 590c34-62 83-67 116-18-48 0-78 11-116 18z" fill="#2f8f5b"/>
+    <path d="M970 602c34 42 83 50 126 18-50-7-83-17-126-18z" fill="#1f7a7a"/>
+  </g>
+</svg>
