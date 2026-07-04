@@ -150,6 +150,8 @@ def init_db():
                 destination_name TEXT NOT NULL,
                 destination_type TEXT NOT NULL,
                 address TEXT,
+                latitude REAL,
+                longitude REAL,
                 contact_person TEXT,
                 contact_phone TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
@@ -161,6 +163,8 @@ def init_db():
                 source_name TEXT NOT NULL,
                 source_type TEXT NOT NULL,
                 address TEXT,
+                latitude REAL,
+                longitude REAL,
                 zone TEXT,
                 contact_person TEXT,
                 contact_phone TEXT,
@@ -265,9 +269,56 @@ def init_db():
             );
             """
         )
+        ensure_location_columns(conn)
         count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if count == 0:
             seed_db(conn)
+        seed_location_coordinates(conn)
+
+
+def ensure_location_columns(conn):
+    required = {
+        "waste_sources": {"latitude": "REAL", "longitude": "REAL"},
+        "destinations": {"latitude": "REAL", "longitude": "REAL"},
+    }
+    for table, columns in required.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for column, column_type in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def seed_location_coordinates(conn):
+    source_coordinates = {
+        "Jesselton Food Court": (5.9827, 116.0735),
+        "Kota Kinabalu Central Market": (5.9818, 116.0731),
+        "Likas Hotel Kitchen": (6.0067, 116.1009),
+        "Sembulan School Canteen": (5.9539, 116.0715),
+        "Ramadan Bazaar Lintasan Deasoka": (5.9812, 116.0754),
+    }
+    destination_coordinates = {
+        "KTE Compost Site": (5.9348, 116.0496),
+        "Kapayan Composting Area": (5.9336, 116.0878),
+        "DBKK Future Compost Hub": (5.9804, 116.0735),
+    }
+    for name, (latitude, longitude) in source_coordinates.items():
+        conn.execute(
+            """
+            UPDATE waste_sources
+            SET latitude=COALESCE(latitude, ?), longitude=COALESCE(longitude, ?)
+            WHERE source_name=?
+            """,
+            (latitude, longitude, name),
+        )
+    for name, (latitude, longitude) in destination_coordinates.items():
+        conn.execute(
+            """
+            UPDATE destinations
+            SET latitude=COALESCE(latitude, ?), longitude=COALESCE(longitude, ?)
+            WHERE destination_name=?
+            """,
+            (latitude, longitude, name),
+        )
 
 
 def seed_db(conn):
@@ -287,16 +338,16 @@ def seed_db(conn):
     collector_id = conn.execute("SELECT id FROM users WHERE role='collector'").fetchone()["id"]
 
     destinations = [
-        ("KTE Compost Site", "kte_site", "Kota Kinabalu industrial composting area", "KTE Site Supervisor", "088-555 210"),
-        ("Kapayan Composting Area", "kapayan_site", "Kapayan community composting area", "Kapayan Operator", "088-555 211"),
-        ("DBKK Future Compost Hub", "compost_hub", "Proposed DBKK organic diversion hub", "DBKK Solid Waste Unit", "088-555 212"),
+        ("KTE Compost Site", "kte_site", "Kota Kinabalu industrial composting area", 5.9348, 116.0496, "KTE Site Supervisor", "088-555 210"),
+        ("Kapayan Composting Area", "kapayan_site", "Kapayan community composting area", 5.9336, 116.0878, "Kapayan Operator", "088-555 211"),
+        ("DBKK Future Compost Hub", "compost_hub", "Proposed DBKK organic diversion hub", 5.9804, 116.0735, "DBKK Solid Waste Unit", "088-555 212"),
     ]
     for row in destinations:
         conn.execute(
             """
             INSERT INTO destinations
-                (destination_name, destination_type, address, contact_person, contact_phone)
-            VALUES (?, ?, ?, ?, ?)
+                (destination_name, destination_type, address, latitude, longitude, contact_person, contact_phone)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             row,
         )
@@ -309,6 +360,8 @@ def seed_db(conn):
             "Jesselton Food Court",
             "food_court_vendor",
             "Jalan Tun Fuad Stephens",
+            5.9827,
+            116.0735,
             "Central",
             "Farah Lim",
             "012-430 2211",
@@ -322,6 +375,8 @@ def seed_db(conn):
             "Kota Kinabalu Central Market",
             "wholesale_market",
             "Jalan Tun Razak",
+            5.9818,
+            116.0731,
             "Central",
             "Market Office",
             "088-230 900",
@@ -335,6 +390,8 @@ def seed_db(conn):
             "Likas Hotel Kitchen",
             "hotel_kitchen",
             "Likas Bay",
+            6.0067,
+            116.1009,
             "North",
             "Kitchen Manager",
             "088-420 880",
@@ -348,6 +405,8 @@ def seed_db(conn):
             "Sembulan School Canteen",
             "school_canteen",
             "Sembulan",
+            5.9539,
+            116.0715,
             "South",
             "Canteen Lead",
             "088-300 778",
@@ -361,6 +420,8 @@ def seed_db(conn):
             "Ramadan Bazaar Lintasan Deasoka",
             "bazaar",
             "Lintasan Deasoka",
+            5.9812,
+            116.0754,
             "Central",
             "Event Coordinator",
             "013-770 9191",
@@ -375,11 +436,11 @@ def seed_db(conn):
         conn.execute(
             """
             INSERT INTO waste_sources (
-                source_name, source_type, address, zone, contact_person, contact_phone,
+                source_name, source_type, address, latitude, longitude, zone, contact_person, contact_phone,
                 estimated_organic_kg_per_day, estimated_recyclable_kg_per_day, status,
                 assigned_vendor_user_id, default_destination_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             source,
         )
@@ -554,6 +615,40 @@ def role_badge(role):
     return f'<span class="role role-{h(role)}">{h(ROLES.get(role, role))}</span>'
 
 
+def coordinate_pair(row):
+    try:
+        latitude = row["latitude"]
+        longitude = row["longitude"]
+    except (KeyError, IndexError):
+        return None
+    if latitude is None or longitude is None:
+        return None
+    return f"{float(latitude):.6f},{float(longitude):.6f}"
+
+
+def map_query(name, address="", latitude=None, longitude=None):
+    if latitude not in (None, "") and longitude not in (None, ""):
+        return f"{float(latitude):.6f},{float(longitude):.6f}"
+    parts = [name, address, "Kota Kinabalu Sabah Malaysia"]
+    return " ".join(part for part in parts if part)
+
+
+def google_embed_url(query, zoom=15):
+    return f"https://www.google.com/maps?q={quote(str(query), safe=',')}&z={int(zoom)}&output=embed"
+
+
+def google_open_url(query):
+    return f"https://www.google.com/maps/search/?api=1&query={quote(str(query), safe=',')}"
+
+
+def google_directions_url(origin, destination):
+    return (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={quote(str(origin), safe=',')}"
+        f"&destination={quote(str(destination), safe=',')}"
+    )
+
+
 def latest_compliance_by_source(conn=None):
     close = False
     if conn is None:
@@ -617,29 +712,29 @@ def render_login(error=""):
 
 def nav_for(user):
     role = user["role"]
-    items = [("dashboard", "/dashboard", "Dashboard")]
-    if role == "admin":
-        items.extend(
-            [
-                ("sources", "/sources", "Waste Sources"),
-                ("destinations", "/destinations", "Destinations"),
-                ("compliance", "/compliance", "Compliance"),
-            ]
-        )
-    items.append(("pickups", "/pickups", "Pickups"))
-    if role in {"admin", "collector"}:
-        items.extend(
-            [
-                ("collections", "/collections", "Collections"),
-                ("intakes", "/intakes", "Compost Intake"),
-                ("outputs", "/outputs", "Compost Output"),
-            ]
-        )
-    if role in {"admin", "vendor"}:
-        items.append(("recyclables", "/recyclables", "Recyclables"))
-    if role == "admin":
-        items.append(("reports", "/reports", "Reports"))
-    return items
+    if role == "vendor":
+        return [
+            ("dashboard", "/dashboard", "Home"),
+            ("pickups", "/pickups", "Request Pickup"),
+            ("recyclables", "/recyclables", "My Waste"),
+            ("history", "/history", "History"),
+        ]
+    if role == "collector":
+        return [
+            ("dashboard", "/dashboard", "Today's Jobs"),
+            ("pickups", "/pickups", "Pickup Board"),
+            ("collections", "/collections", "Collections"),
+            ("intakes", "/intakes", "Delivery"),
+            ("outputs", "/outputs", "Compost Output"),
+        ]
+    return [
+        ("dashboard", "/dashboard", "Dashboard"),
+        ("sources", "/sources", "Waste Sources"),
+        ("compliance", "/compliance", "Segregation"),
+        ("pickups", "/pickups", "Pickup Board"),
+        ("destinations", "/destinations", "Compost Sites"),
+        ("reports", "/reports", "Reports"),
+    ]
 
 
 def layout(user, active, title, body, actions=""):
@@ -719,10 +814,584 @@ def bar_chart(rows, label_key, value_key, color="green"):
     return '<div class="chart-bars">' + "".join(bars) + "</div>"
 
 
+def progress_bar(percent, label=""):
+    safe_percent = max(0, min(100, int(percent or 0)))
+    label_html = f"<span>{h(label)}</span>" if label else ""
+    return f"""
+    <div class="progress-block">
+        <div class="progress-meta">{label_html}<strong>{safe_percent}%</strong></div>
+        <div class="progress-track"><div class="progress-fill" style="width:{safe_percent}%"></div></div>
+    </div>"""
+
+
+def pickup_action_forms(row, user):
+    if user["role"] not in {"collector", "admin"}:
+        return ""
+    pickup_id = h(row["id"])
+    can_work = row["status"] in {"approved", "assigned"}
+    if not can_work:
+        return ""
+    return f"""
+    <div class="quick-actions">
+        <form method="post" action="/pickups/start">
+            <input type="hidden" name="id" value="{pickup_id}">
+            <button class="btn btn-small" type="submit">Start</button>
+        </form>
+        <form method="post" action="/pickups/quick-collect">
+            <input type="hidden" name="id" value="{pickup_id}">
+            <button class="btn btn-small btn-primary" type="submit">Collected</button>
+        </form>
+        <form method="post" action="/pickups/report-issue">
+            <input type="hidden" name="id" value="{pickup_id}">
+            <button class="btn btn-small btn-danger" type="submit">Issue</button>
+        </form>
+    </div>"""
+
+
+def pickup_cards(rows, user, collectors=None, allow_admin_update=False):
+    if not rows:
+        return empty_state("No pickup jobs here.")
+    collectors = collectors or []
+    cards = []
+    for row in rows:
+        destination = row["destination_name"] if "destination_name" in row.keys() else ""
+        collector = row["collector_name"] if "collector_name" in row.keys() else ""
+        admin_update = ""
+        if allow_admin_update and user["role"] == "admin":
+            admin_update = f"""
+            <form method="post" action="/pickups/update" class="pickup-card-update">
+                <input type="hidden" name="id" value="{h(row['id'])}">
+                <select name="status">{options(PICKUP_STATUSES, row['status'])}</select>
+                <select name="assigned_collector_user_id">
+                    <option value="">Unassigned</option>
+                    {options(collectors, row['assigned_collector_user_id'], lambda item: item['name'], lambda item: item['id'])}
+                </select>
+                <button class="btn btn-small" type="submit">Save</button>
+            </form>"""
+        cards.append(
+            f"""
+            <article class="pickup-card">
+                <div class="pickup-card-top">
+                    <span class="pickup-id">#{h(row['id'])}</span>
+                    {status_badge(row['status'])}
+                </div>
+                <h3>{h(row['source_name'])}</h3>
+                <div class="pickup-facts">
+                    <span><strong>{kg(row['estimated_organic_kg'])}</strong> estimated</span>
+                    <span>{h(row['requested_pickup_date'])}</span>
+                    <span>{h(labelize(row['request_type']))}</span>
+                </div>
+                <dl class="compact-dl">
+                    <div><dt>Destination</dt><dd>{h(destination or 'Not set')}</dd></div>
+                    <div><dt>Collector</dt><dd>{h(collector or 'Unassigned')}</dd></div>
+                    <div><dt>Notes</dt><dd>{h(row['notes'] or '-')}</dd></div>
+                </dl>
+                {pickup_action_forms(row, user)}
+                {admin_update}
+            </article>"""
+        )
+    return '<div class="pickup-card-grid">' + "".join(cards) + "</div>"
+
+
+def pickup_board(rows, user, collectors=None):
+    groups = [
+        ("pending", "Pending"),
+        ("approved", "Assigned"),
+        ("collected", "Collected"),
+        ("failed", "Issues"),
+    ]
+    columns = []
+    for key, label in groups:
+        if key == "approved":
+            filtered = [row for row in rows if row["status"] in {"approved", "assigned"}]
+        elif key == "failed":
+            filtered = [row for row in rows if row["status"] in {"failed", "cancelled"}]
+        else:
+            filtered = [row for row in rows if row["status"] == key]
+        columns.append(
+            f"""
+            <section class="board-column">
+                <div class="board-column-head">
+                    <h3>{h(label)}</h3>
+                    <span>{len(filtered)}</span>
+                </div>
+                {pickup_cards(filtered, user, collectors, allow_admin_update=(user['role'] == 'admin'))}
+            </section>"""
+        )
+    return '<div class="pickup-board">' + "".join(columns) + "</div>"
+
+
 def source_scope_clause(user, alias="ws"):
     if user["role"] == "vendor":
         return f" AND {alias}.assigned_vendor_user_id = ?", [user["id"]]
     return "", []
+
+
+def sabah_project(latitude, longitude):
+    min_lon, max_lon = 115.0, 119.4
+    min_lat, max_lat = 4.0, 7.4
+    x = ((float(longitude) - min_lon) / (max_lon - min_lon)) * 100
+    y = ((max_lat - float(latitude)) / (max_lat - min_lat)) * 100
+    return max(4, min(96, x)), max(6, min(94, y))
+
+
+def dashboard_marker_bounds(coordinates):
+    if not coordinates:
+        return 4.0, 7.4, 115.0, 119.4
+    latitudes = [item[0] for item in coordinates]
+    longitudes = [item[1] for item in coordinates]
+    min_lat, max_lat = min(latitudes), max(latitudes)
+    min_lng, max_lng = min(longitudes), max(longitudes)
+    lat_pad = max((max_lat - min_lat) * 0.28, 0.018)
+    lng_pad = max((max_lng - min_lng) * 0.28, 0.018)
+    return min_lat - lat_pad, max_lat + lat_pad, min_lng - lng_pad, max_lng + lng_pad
+
+
+def dashboard_marker_project(latitude, longitude, bounds):
+    min_lat, max_lat, min_lng, max_lng = bounds
+    lat_span = max(max_lat - min_lat, 0.001)
+    lng_span = max(max_lng - min_lng, 0.001)
+    x = ((float(longitude) - min_lng) / lng_span) * 100
+    y = ((max_lat - float(latitude)) / lat_span) * 100
+    return max(7, min(93, x)), max(8, min(82, y))
+
+
+def dashboard_marker_position(latitude, longitude, bounds, slots):
+    x, y = dashboard_marker_project(latitude, longitude, bounds)
+    key = (round(x / 4), round(y / 4))
+    slot = slots.get(key, 0)
+    slots[key] = slot + 1
+    offsets = [
+        (0, 0),
+        (3.2, -3.0),
+        (-3.2, 3.0),
+        (3.2, 3.0),
+        (-3.2, -3.0),
+        (0, 4.0),
+        (4.0, 0),
+        (-4.0, 0),
+    ]
+    offset_x, offset_y = offsets[slot % len(offsets)]
+    return max(7, min(93, x + offset_x)), max(8, min(82, y + offset_y))
+
+
+def sabah_dashboard_map(user):
+    with db() as conn:
+        if user["role"] == "vendor":
+            sources = conn.execute(
+                """
+                SELECT ws.*, d.destination_name, d.address AS destination_address,
+                       d.latitude AS destination_latitude, d.longitude AS destination_longitude
+                FROM waste_sources ws
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                WHERE ws.assigned_vendor_user_id=?
+                ORDER BY ws.source_name
+                """,
+                (user["id"],),
+            ).fetchall()
+        elif user["role"] == "collector":
+            sources = conn.execute(
+                """
+                SELECT DISTINCT ws.*, d.destination_name, d.address AS destination_address,
+                       d.latitude AS destination_latitude, d.longitude AS destination_longitude
+                FROM waste_sources ws
+                JOIN pickup_requests pr ON pr.waste_source_id=ws.id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                WHERE pr.assigned_collector_user_id=?
+                ORDER BY ws.source_name
+                """,
+                (user["id"],),
+            ).fetchall()
+        else:
+            sources = conn.execute(
+                """
+                SELECT ws.*, d.destination_name, d.address AS destination_address,
+                       d.latitude AS destination_latitude, d.longitude AS destination_longitude
+                FROM waste_sources ws
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                ORDER BY ws.status DESC, ws.source_name
+                """
+            ).fetchall()
+        destination_ids = sorted(
+            {row["default_destination_id"] for row in sources if row["default_destination_id"]}
+        )
+        destination_where = "WHERE d.is_active=1"
+        destination_params = []
+        if user["role"] != "admin":
+            if destination_ids:
+                placeholders = ",".join("?" for _ in destination_ids)
+                destination_where = f"WHERE d.is_active=1 AND d.id IN ({placeholders})"
+                destination_params = destination_ids
+            else:
+                destination_where = "WHERE 1=0"
+        destinations = conn.execute(
+            f"""
+            SELECT d.*,
+                   (
+                       SELECT ROUND(COALESCE(SUM(ci.received_weight_kg), 0), 1)
+                       FROM compost_intakes ci
+                       WHERE ci.destination_id=d.id
+                   ) AS received_kg,
+                   (
+                       SELECT ROUND(COALESCE(SUM(co.compost_output_kg), 0), 1)
+                       FROM compost_outputs co
+                       JOIN compost_intakes ci ON ci.id=co.compost_intake_id
+                       WHERE ci.destination_id=d.id
+                   ) AS output_kg
+            FROM destinations d
+            {destination_where}
+            ORDER BY d.destination_name
+            """,
+            destination_params,
+        ).fetchall()
+        latest = latest_compliance_by_source(conn)
+        active_pickups = {
+            row["waste_source_id"]: row["total"]
+            for row in conn.execute(
+                """
+                SELECT waste_source_id, COUNT(*) AS total
+                FROM pickup_requests
+                WHERE status IN ('pending','approved','assigned')
+                GROUP BY waste_source_id
+                """
+            ).fetchall()
+        }
+        collected_totals = {
+            row["waste_source_id"]: row["kg"]
+            for row in conn.execute(
+                """
+                SELECT pr.waste_source_id, ROUND(SUM(c.actual_organic_kg), 1) AS kg
+                FROM collections c
+                JOIN pickup_requests pr ON pr.id=c.pickup_request_id
+                GROUP BY pr.waste_source_id
+                """
+            ).fetchall()
+        }
+        attention_rows = conn.execute(
+            """
+            SELECT pr.*, ws.source_name, d.destination_name, u.name AS collector_name
+            FROM pickup_requests pr
+            JOIN waste_sources ws ON ws.id=pr.waste_source_id
+            LEFT JOIN destinations d ON d.id=ws.default_destination_id
+            LEFT JOIN users u ON u.id=pr.assigned_collector_user_id
+            WHERE pr.status IN ('pending','approved','assigned','failed')
+            ORDER BY
+                CASE pr.status
+                    WHEN 'failed' THEN 1
+                    WHEN 'pending' THEN 2
+                    WHEN 'approved' THEN 3
+                    WHEN 'assigned' THEN 4
+                    ELSE 5
+                END,
+                pr.requested_pickup_date ASC
+            """
+        ).fetchall()
+
+    attention_by_source = {}
+    for item in attention_rows:
+        attention_by_source.setdefault(item["waste_source_id"], []).append(item)
+    source_cards = []
+    destination_cards = []
+    marker_buttons = []
+    popup_templates = []
+    mapped_count = 0
+    mapped_destination_count = 0
+    pickup_need_count = 0
+    total_estimated = 0
+    mapped_coordinates = []
+    stage_coordinates = []
+    for source in sources:
+        if source["latitude"] is not None and source["longitude"] is not None:
+            stage_coordinates.append((float(source["latitude"]), float(source["longitude"])))
+    for destination in destinations:
+        if destination["latitude"] is not None and destination["longitude"] is not None:
+            stage_coordinates.append((float(destination["latitude"]), float(destination["longitude"])))
+    marker_bounds = dashboard_marker_bounds(stage_coordinates)
+    marker_slots = {}
+    for source in sources:
+        total_estimated += float(source["estimated_organic_kg_per_day"] or 0)
+        compliance = latest.get(source["id"])
+        compliance_status = compliance["segregation_status"] if compliance else "pending"
+        pickup_count = active_pickups.get(source["id"], 0)
+        attention_items = attention_by_source.get(source["id"], [])
+        if pickup_count:
+            pickup_need_count += 1
+        query = map_query(source["source_name"], source["address"], source["latitude"], source["longitude"])
+        if source["latitude"] is not None and source["longitude"] is not None:
+            mapped_count += 1
+            mapped_coordinates.append((float(source["latitude"]), float(source["longitude"])))
+        destination_query = None
+        if source["destination_name"]:
+            destination_query = map_query(
+                source["destination_name"],
+                source["destination_address"],
+                source["destination_latitude"],
+                source["destination_longitude"],
+            )
+        route_link = (
+            f'<a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_directions_url(query, destination_query))}">Route to Site</a>'
+            if destination_query
+            else ""
+        )
+        if attention_items:
+            marker_kind = "pickup"
+            marker_icon = "!"
+            marker_label = "Active pickup need"
+        elif compliance_status == "compliant":
+            marker_kind = "compliant"
+            marker_icon = "C"
+            marker_label = "Compliant"
+        else:
+            marker_kind = "partial"
+            marker_icon = "P"
+            marker_label = "Partial / pending"
+        pickup_attention_html = "".join(
+            f"""
+            <article class="ops-attention-item">
+                <div>{status_badge(item['status'])}</div>
+                <strong>#{h(item['id'])} - {h(item['requested_pickup_date'])}</strong>
+                <span>{kg(item['estimated_organic_kg'])} estimated</span>
+                <small>Collector: {h(item['collector_name'] or 'Unassigned')}</small>
+                <small>Notes: {h(item['notes'] or '-')}</small>
+            </article>
+            """
+            for item in attention_items
+        )
+        if not pickup_attention_html:
+            pickup_attention_html = '<p class="ops-popup-muted">No active pickup attention for this source.</p>'
+        compliance_detail = (
+            f"{h(labelize(compliance_status))} on {h(compliance['inspection_date'])}"
+            if compliance
+            else "No inspection record yet"
+        )
+        source_popup_id = f"ops-popup-source-{source['id']}"
+        popup_templates.append(
+            f"""
+            <template id="{h(source_popup_id)}">
+                <div class="ops-popup-head">
+                    <span class="ops-popup-icon ops-marker-{h(marker_kind)}">{h(marker_icon)}</span>
+                    <div>
+                        <strong>{h(marker_label)}</strong>
+                        <h3>{h(source['source_name'])}</h3>
+                        <p>{h(labelize(source['source_type']))} - {h(source['zone'])}</p>
+                    </div>
+                </div>
+                <dl class="compact-dl ops-popup-facts">
+                    <div><dt>Segregation</dt><dd>{status_badge(compliance_status)}</dd></div>
+                    <div><dt>Inspection</dt><dd>{compliance_detail}</dd></div>
+                    <div><dt>Pickup attention</dt><dd>{h(len(attention_items))} item(s)</dd></div>
+                    <div><dt>Organic estimate</dt><dd>{kg(source['estimated_organic_kg_per_day'])}/day</dd></div>
+                    <div><dt>Collected</dt><dd>{kg(collected_totals.get(source['id'], 0))}</dd></div>
+                    <div><dt>Compost site</dt><dd>{h(source['destination_name'] or 'Unassigned')}</dd></div>
+                </dl>
+                <div class="ops-attention-list">
+                    <h4>Attention Information</h4>
+                    {pickup_attention_html}
+                </div>
+                <div class="map-actions">
+                    <a class="btn btn-small" href="/sources?edit={h(source['id'])}">Source Details</a>
+                    <a class="btn btn-small" href="/pickups">Pickup Board</a>
+                    <a class="btn btn-small" href="/compliance">Segregation</a>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open Google Map</a>
+                    {route_link}
+                </div>
+            </template>
+            """
+        )
+        if source["latitude"] is not None and source["longitude"] is not None:
+            marker_x, marker_y = dashboard_marker_position(source["latitude"], source["longitude"], marker_bounds, marker_slots)
+            marker_count = f'<span class="ops-marker-count">{h(len(attention_items))}</span>' if attention_items else ""
+            marker_buttons.append(
+                f"""
+                <button class="ops-map-marker ops-marker-{h(marker_kind)} map-select" type="button"
+                    style="--x: {marker_x:.2f}%; --y: {marker_y:.2f}%;"
+                    data-map-url="{h(google_embed_url(query))}"
+                    data-popup-target="{h(source_popup_id)}"
+                    data-popup-kind="{h(marker_kind)}"
+                    aria-label="{h(source['source_name'])}: {h(marker_label)}">
+                    <span class="ops-marker-symbol">{h(marker_icon)}</span>
+                    {marker_count}
+                </button>
+                """
+            )
+        source_cards.append(
+            f"""
+            <article class="sabah-location-card" data-location-type="source">
+                <div class="map-card-head">
+                    <span class="map-pin map-pin-source">Waste Source</span>
+                    {status_badge(compliance_status)}
+                </div>
+                <div>
+                    <h3>{h(source['source_name'])}</h3>
+                    <p>{h(labelize(source['source_type']))} - {h(source['zone'])}</p>
+                </div>
+                <dl>
+                    <div><dt>Status</dt><dd>{status_badge(compliance_status)}</dd></div>
+                    <div><dt>Pickup need</dt><dd>{h(pickup_count)} active</dd></div>
+                    <div><dt>Organic estimate</dt><dd>{kg(source['estimated_organic_kg_per_day'])}/day</dd></div>
+                    <div><dt>Collected</dt><dd>{kg(collected_totals.get(source['id'], 0))}</dd></div>
+                    <div><dt>Destination</dt><dd>{h(source['destination_name'] or 'Unassigned')}</dd></div>
+                </dl>
+                <div class="map-actions">
+                    <button class="btn btn-small map-select" type="button" data-map-url="{h(google_embed_url(query))}" data-popup-target="{h(source_popup_id)}" data-popup-kind="{h(marker_kind)}">Show on map</button>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open Google Map</a>
+                    {route_link}
+                    <a class="btn btn-small" href="/sources?edit={h(source['id'])}">Source Details</a>
+                    <a class="btn btn-small" href="/pickups">Pickup Board</a>
+                </div>
+            </article>
+            """
+        )
+
+    for destination in destinations:
+        query = map_query(
+            destination["destination_name"],
+            destination["address"],
+            destination["latitude"],
+            destination["longitude"],
+        )
+        if destination["latitude"] is not None and destination["longitude"] is not None:
+            mapped_destination_count += 1
+            mapped_coordinates.append((float(destination["latitude"]), float(destination["longitude"])))
+        destination_popup_id = f"ops-popup-destination-{destination['id']}"
+        popup_templates.append(
+            f"""
+            <template id="{h(destination_popup_id)}">
+                <div class="ops-popup-head">
+                    <span class="ops-popup-icon ops-marker-destination">S</span>
+                    <div>
+                        <strong>Compost site</strong>
+                        <h3>{h(destination['destination_name'])}</h3>
+                        <p>{h(labelize(destination['destination_type']))}</p>
+                    </div>
+                </div>
+                <dl class="compact-dl ops-popup-facts">
+                    <div><dt>Address</dt><dd>{h(destination['address'] or '-')}</dd></div>
+                    <div><dt>Received intake</dt><dd>{kg(destination['received_kg'])}</dd></div>
+                    <div><dt>Compost output</dt><dd>{kg(destination['output_kg'])}</dd></div>
+                    <div><dt>Contact</dt><dd>{h(destination['contact_person'] or '-')}</dd></div>
+                    <div><dt>Phone</dt><dd>{h(destination['contact_phone'] or '-')}</dd></div>
+                </dl>
+                <div class="ops-attention-list">
+                    <h4>Site Information</h4>
+                    <article class="ops-attention-item">
+                        <div><span class="badge badge-active">Active</span></div>
+                        <strong>{kg(destination['received_kg'])} received for composting</strong>
+                        <span>{kg(destination['output_kg'])} compost output recorded</span>
+                        <small>Coordinates: {h(coordinate_pair(destination) or 'Not set')}</small>
+                    </article>
+                </div>
+                <div class="map-actions">
+                    <a class="btn btn-small" href="/destinations?edit={h(destination['id'])}">Site Details</a>
+                    <a class="btn btn-small" href="/reports">Reports</a>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open Google Map</a>
+                </div>
+            </template>
+            """
+        )
+        if destination["latitude"] is not None and destination["longitude"] is not None:
+            marker_x, marker_y = dashboard_marker_position(destination["latitude"], destination["longitude"], marker_bounds, marker_slots)
+            marker_buttons.append(
+                f"""
+                <button class="ops-map-marker ops-marker-destination map-select" type="button"
+                    style="--x: {marker_x:.2f}%; --y: {marker_y:.2f}%;"
+                    data-map-url="{h(google_embed_url(query))}"
+                    data-popup-target="{h(destination_popup_id)}"
+                    data-popup-kind="destination"
+                    aria-label="{h(destination['destination_name'])}: Compost site">
+                    <span class="ops-marker-symbol">S</span>
+                </button>
+                """
+            )
+        destination_cards.append(
+            f"""
+            <article class="sabah-location-card destination-card" data-location-type="destination">
+                <div class="map-card-head">
+                    <span class="map-pin map-pin-destination">Compost Site</span>
+                    <span class="badge badge-active">Active</span>
+                </div>
+                <div>
+                    <h3>{h(destination['destination_name'])}</h3>
+                    <p>{h(labelize(destination['destination_type']))}</p>
+                </div>
+                <dl>
+                    <div><dt>Address</dt><dd>{h(destination['address'] or '-')}</dd></div>
+                    <div><dt>Received</dt><dd>{kg(destination['received_kg'])}</dd></div>
+                    <div><dt>Compost output</dt><dd>{kg(destination['output_kg'])}</dd></div>
+                    <div><dt>Contact</dt><dd>{h(destination['contact_person'] or '-')}</dd></div>
+                    <div><dt>Coordinates</dt><dd>{h(coordinate_pair(destination) or 'Not set')}</dd></div>
+                </dl>
+                <div class="map-actions">
+                    <button class="btn btn-small map-select" type="button" data-map-url="{h(google_embed_url(query))}" data-popup-target="{h(destination_popup_id)}" data-popup-kind="destination">Show on map</button>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open Google Map</a>
+                    <a class="btn btn-small" href="/destinations?edit={h(destination['id'])}">Site Details</a>
+                    <a class="btn btn-small" href="/reports">Reports</a>
+                </div>
+            </article>
+            """
+        )
+
+    if mapped_coordinates:
+        avg_lat = sum(item[0] for item in mapped_coordinates) / len(mapped_coordinates)
+        avg_lng = sum(item[1] for item in mapped_coordinates) / len(mapped_coordinates)
+        overview_query = f"{avg_lat:.6f},{avg_lng:.6f}"
+        overview_map_url = google_embed_url(overview_query, 12)
+    else:
+        overview_query = "Sabah Malaysia"
+        overview_map_url = google_embed_url(overview_query, 8)
+    source_html = "".join(source_cards) if source_cards else empty_state("No organic waste collection sources available.")
+    destination_html = "".join(destination_cards) if destination_cards else empty_state("No compost destinations available.")
+    marker_html = "".join(marker_buttons) if marker_buttons else '<div class="ops-map-empty">No mapped operation icons yet.</div>'
+    popup_template_html = "".join(popup_templates)
+    return f"""
+    <section class="sabah-dashboard">
+        <div class="sabah-map-panel">
+            <div class="panel-heading">
+                <h2>Dashboard Operations Map</h2>
+                <p>Live Google Maps view connected to sources, pickups, segregation, collections, and compost destinations.</p>
+            </div>
+            <div class="sabah-map-stage google-dashboard-stage" aria-label="Google map of Sabah organic waste source locations">
+                <iframe id="googleMapFrame" class="dashboard-google-map-frame" title="Google map of organic collection locations" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="{h(overview_map_url)}"></iframe>
+                <div class="ops-map-marker-layer" aria-label="Clickable operation status markers">
+                    {marker_html}
+                </div>
+                <div id="opsMapPopup" class="ops-map-popup" hidden>
+                    <button class="ops-popup-close" type="button" aria-label="Close map details">x</button>
+                    <div class="ops-map-popup-body"></div>
+                </div>
+                <div class="ops-map-popup-templates" hidden>{popup_template_html}</div>
+                <div class="google-map-toolbar">
+                    <button class="btn btn-small map-select" type="button" data-map-url="{h(overview_map_url)}">Show Sabah Overview</button>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(overview_query))}">Open in Google Maps</a>
+                </div>
+            </div>
+            <div class="sabah-legend">
+                <span><i class="legend-dot legend-pickup"></i> Active pickup need</span>
+                <span><i class="legend-dot legend-compliant"></i> Compliant</span>
+                <span><i class="legend-dot legend-partial"></i> Partial / pending</span>
+                <span><i class="legend-dot legend-destination"></i> Compost site</span>
+            </div>
+        </div>
+        <aside class="sabah-overview-panel">
+            <div class="sabah-stat-grid four">
+                <article><span>Mapped Sources</span><strong>{h(mapped_count)}</strong></article>
+                <article><span>Need Collection</span><strong>{h(pickup_need_count)}</strong></article>
+                <article><span>Compost Sites</span><strong>{h(mapped_destination_count)}</strong></article>
+                <article><span>Daily Organic Estimate</span><strong>{kg(total_estimated)}</strong></article>
+            </div>
+            <div class="sabah-location-list">
+                <section class="sabah-location-group">
+                    <h3>Waste Sources</h3>
+                    <div class="sabah-location-stack">{source_html}</div>
+                </section>
+                <section class="sabah-location-group">
+                    <h3>Compost Destinations</h3>
+                    <div class="sabah-location-stack">{destination_html}</div>
+                </section>
+            </div>
+        </aside>
+    </section>
+    """
 
 
 def page_dashboard(user):
@@ -769,51 +1438,96 @@ def page_dashboard(user):
                 LIMIT 6
                 """
             ).fetchall()
+            pending_jobs = conn.execute(
+                """
+                SELECT pr.*, ws.source_name, d.destination_name, u.name AS collector_name
+                FROM pickup_requests pr
+                JOIN waste_sources ws ON ws.id=pr.waste_source_id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                LEFT JOIN users u ON u.id=pr.assigned_collector_user_id
+                WHERE pr.status IN ('pending','approved','assigned','failed')
+                ORDER BY
+                    CASE pr.status
+                        WHEN 'failed' THEN 1
+                        WHEN 'pending' THEN 2
+                        WHEN 'approved' THEN 3
+                        WHEN 'assigned' THEN 4
+                        ELSE 5
+                    END,
+                    pr.requested_pickup_date ASC
+                LIMIT 8
+                """
+            ).fetchall()
+            top_sources = conn.execute(
+                """
+                SELECT id, source_name, source_type, zone, estimated_organic_kg_per_day
+                FROM waste_sources
+                ORDER BY estimated_organic_kg_per_day DESC
+                LIMIT 5
+                """
+            ).fetchall()
+            compost_sites = conn.execute(
+                """
+                SELECT d.destination_name AS site, ROUND(COALESCE(SUM(ci.received_weight_kg), 0), 1) AS kg
+                FROM destinations d
+                LEFT JOIN compost_intakes ci ON ci.destination_id=d.id
+                GROUP BY d.id
+                ORDER BY kg DESC, d.destination_name
+                LIMIT 5
+                """
+            ).fetchall()
             pickup_map = {row["status"]: row["count"] for row in pickup_counts}
         metrics = "".join(
             [
-                metric_card("Registered Sources", totals["sources"], f'{totals["active_sources"] or 0} active', "blue"),
-                metric_card("Organic Collected", kg(collected), "Actual collection records", "green"),
-                metric_card("Delivered to Compost", kg(delivered), "Accepted or partial intake", "teal"),
-                metric_card("Compost Produced", kg(compost), "Closed-loop output", "amber"),
-                metric_card("Pending Operations", pickup_map.get("pending", 0) + pickup_map.get("approved", 0) + pickup_map.get("assigned", 0), "Pending, approved, assigned", "rose"),
-                metric_card("Incidents", contamination + missed, f"{contamination} contamination, {missed} missed", "neutral"),
+                metric_card("Organic Collected", kg(collected), "Organic waste picked up", "green"),
+                metric_card("Diverted From Landfill", kg(delivered), "Accepted compost-site intake", "teal"),
+                metric_card("Compliant Vendors", compliance_counts.get("compliant", 0), "Latest inspection status", "blue"),
+                metric_card("Pending Pickups", pickup_map.get("pending", 0) + pickup_map.get("approved", 0) + pickup_map.get("assigned", 0), "Needs action", "rose"),
             ]
         )
         compliance_rows = [
             {"label": labelize(key), "value": value}
             for key, value in compliance_counts.items()
         ]
+        risk_cards = []
+        for source in top_sources:
+            comp = latest.get(source["id"])
+            status = comp["segregation_status"] if comp else "pending"
+            risk_cards.append(
+                f"""
+                <article class="ops-card">
+                    <div>{status_badge(status)}</div>
+                    <h3>{h(source['source_name'])}</h3>
+                    <p>{h(labelize(source['source_type']))} - {h(source['zone'])}</p>
+                    <strong>{kg(source['estimated_organic_kg_per_day'])}/day</strong>
+                </article>"""
+            )
         body = f"""
-        <section class="metrics-grid">{metrics}</section>
+        <section class="metrics-grid four">{metrics}</section>
+        {sabah_dashboard_map(user)}
         <section class="content-grid two">
             <div class="panel">
-                <div class="panel-heading">
-                    <h2>Monthly Organic Collection</h2>
-                    <p>Actual compostable waste collected by month.</p>
+                <div class="panel-heading compact-heading">
+                    <h2>Top Waste Sources</h2>
+                    <p>Highest estimated organic waste generators.</p>
                 </div>
-                {bar_chart(monthly, "month", "kg", "green")}
+                <div class="ops-card-list">{''.join(risk_cards)}</div>
             </div>
             <div class="panel">
-                <div class="panel-heading">
-                    <h2>Segregation Compliance</h2>
-                    <p>Latest inspection result for each waste source.</p>
+                <div class="panel-heading compact-heading">
+                    <h2>Segregation</h2>
+                    <p>Latest vendor inspection status.</p>
                 </div>
                 {bar_chart(compliance_rows, "label", "value", "amber")}
             </div>
         </section>
-        <section class="panel">
-            <div class="panel-heading">
-                <h2>V1 Operating Boundary</h2>
-                <p>This system focuses on organic waste segregation, separate collection, compost intake, compost output, diversion reporting, and lightweight recyclable awareness.</p>
-            </div>
-            <div class="workflow-strip">
-                <span>Register source</span>
-                <span>Inspect segregation</span>
-                <span>Schedule pickup</span>
-                <span>Record collection</span>
-                <span>Log compost intake</span>
-                <span>Report diversion</span>
+        <section class="content-grid two">
+            <div class="panel">
+                <div class="panel-heading compact-heading">
+                    <h2>Compost Site Intake</h2>
+                    <p>Where organic waste has been received.</p>
+                </div>
+                {bar_chart(compost_sites, "site", "kg", "green")}
             </div>
         </section>
         """
@@ -870,25 +1584,50 @@ def page_dashboard(user):
             if next_pickup
             else "No upcoming pickup scheduled yet."
         )
+        total_vendor_organic = sum(float(source["estimated_organic_kg_per_day"] or 0) for source in sources)
+        primary_compliance = latest.get(sources[0]["id"]) if sources else None
+        primary_status = primary_compliance["segregation_status"] if primary_compliance else "pending"
+        compliance_percent = {
+            "compliant": 100,
+            "partially_compliant": 70,
+            "pending": 35,
+            "non_compliant": 20,
+        }.get(primary_status, 0)
         body = f"""
-        <section class="metrics-grid compact">
-            {metric_card("My Sources", len(sources), "Assigned to this vendor account", "blue")}
-            {metric_card("Next Pickup", next_html, "Organic waste collection", "green")}
+        <section class="role-action-grid vendor-home">
+            <article class="action-card action-green">
+                <span class="action-kicker">Organic Waste Ready</span>
+                <h2>{kg(total_vendor_organic)}</h2>
+                <p>Estimated daily organic waste from your registered source.</p>
+                <a class="btn btn-primary" href="/pickups">Request Pickup</a>
+            </article>
+            <article class="action-card action-amber">
+                <span class="action-kicker">Segregation Check</span>
+                <h2>{h(labelize(primary_status))}</h2>
+                {progress_bar(compliance_percent, "Readiness")}
+                <a class="btn" href="/recyclables">Update My Waste</a>
+            </article>
+            <article class="action-card action-blue">
+                <span class="action-kicker">Next Collection</span>
+                <h2>{next_html}</h2>
+                <p>Keep compostable waste separated before pickup.</p>
+                <a class="btn" href="/history">View History</a>
+            </article>
         </section>
         <section class="content-grid two">
             <div class="panel">
-                <div class="panel-heading">
+                <div class="panel-heading compact-heading">
                     <h2>My Waste Sources</h2>
-                    <p>Profile, estimates, and current segregation status.</p>
+                    <p>Only your assigned vendor source is shown here.</p>
                 </div>
                 <div class="source-list">{''.join(source_cards) if source_cards else empty_state('No source assigned.')}</div>
             </div>
             <div class="panel">
-                <div class="panel-heading">
-                    <h2>Pickup History</h2>
-                    <p>Submit new requests from the Pickup Requests page.</p>
+                <div class="panel-heading compact-heading">
+                    <h2>Recent Pickups</h2>
+                    <p>Simple status view for your requests.</p>
                 </div>
-                {rows}
+                {pickup_cards(pickups, user)}
             </div>
         </section>
         """
@@ -920,22 +1659,31 @@ def page_dashboard(user):
             (user["id"],),
         ).fetchall()
     body = f"""
-    <section class="metrics-grid compact">
-        {metric_card("Assigned Pickups", len(assigned), "Approved or assigned jobs", "green")}
-        {metric_card("Pending Intake Logs", len(pending_intakes), "Collected waste needing compost-site confirmation", "amber")}
+    <section class="role-action-grid collector-home">
+        <article class="action-card action-green">
+            <span class="action-kicker">Today's Pickups</span>
+            <h2>{len(assigned)} jobs</h2>
+            <p>Start, collect, or report an issue directly from each card.</p>
+        </article>
+        <article class="action-card action-amber">
+            <span class="action-kicker">Delivery To Log</span>
+            <h2>{len(pending_intakes)} loads</h2>
+            <p>Collected organic waste still needs compost-site intake confirmation.</p>
+            <a class="btn" href="/intakes">Log Delivery</a>
+        </article>
     </section>
     <section class="content-grid two">
         <div class="panel">
-            <div class="panel-heading">
-                <h2>Assigned Pickup Jobs</h2>
-                <p>Record collection details from the Collections page.</p>
+            <div class="panel-heading compact-heading">
+                <h2>Today's Jobs</h2>
+                <p>Task board for assigned organic waste pickups.</p>
             </div>
-            {pickup_table(assigned, True, False, False, user)}
+            {pickup_cards(assigned, user)}
         </div>
         <div class="panel">
-            <div class="panel-heading">
-                <h2>Pending Compost Intake</h2>
-                <p>Confirm delivery into KTE, Kapayan, or another compost site.</p>
+            <div class="panel-heading compact-heading">
+                <h2>Delivery Queue</h2>
+                <p>Collected loads that still need intake logging.</p>
             </div>
             {collection_table(pending_intakes, show_destination=True)}
         </div>
@@ -1032,6 +1780,182 @@ def collection_table(rows, show_destination=True):
     </div>"""
 
 
+def page_map(user):
+    with db() as conn:
+        if user["role"] == "vendor":
+            sources = conn.execute(
+                """
+                SELECT ws.*, d.destination_name, d.latitude AS destination_latitude,
+                       d.longitude AS destination_longitude, d.address AS destination_address
+                FROM waste_sources ws
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                WHERE ws.assigned_vendor_user_id=?
+                ORDER BY ws.source_name
+                """,
+                (user["id"],),
+            ).fetchall()
+        elif user["role"] == "collector":
+            sources = conn.execute(
+                """
+                SELECT DISTINCT ws.*, d.destination_name, d.latitude AS destination_latitude,
+                       d.longitude AS destination_longitude, d.address AS destination_address
+                FROM waste_sources ws
+                JOIN pickup_requests pr ON pr.waste_source_id=ws.id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                WHERE pr.assigned_collector_user_id=?
+                ORDER BY ws.source_name
+                """,
+                (user["id"],),
+            ).fetchall()
+        else:
+            sources = conn.execute(
+                """
+                SELECT ws.*, d.destination_name, d.latitude AS destination_latitude,
+                       d.longitude AS destination_longitude, d.address AS destination_address
+                FROM waste_sources ws
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
+                ORDER BY ws.status DESC, ws.source_name
+                """
+            ).fetchall()
+        destinations = conn.execute(
+            """
+            SELECT *
+            FROM destinations
+            WHERE is_active=1
+            ORDER BY destination_name
+            """
+        ).fetchall()
+        latest = latest_compliance_by_source(conn)
+        active_pickups = {
+            row["waste_source_id"]: row["total"]
+            for row in conn.execute(
+                """
+                SELECT waste_source_id, COUNT(*) AS total
+                FROM pickup_requests
+                WHERE status IN ('pending','approved','assigned')
+                GROUP BY waste_source_id
+                """
+            ).fetchall()
+        }
+        collected_totals = {
+            row["waste_source_id"]: row["kg"]
+            for row in conn.execute(
+                """
+                SELECT pr.waste_source_id, ROUND(SUM(c.actual_organic_kg), 1) AS kg
+                FROM collections c
+                JOIN pickup_requests pr ON pr.id=c.pickup_request_id
+                GROUP BY pr.waste_source_id
+                """
+            ).fetchall()
+        }
+
+    cards = []
+    first_query = None
+    source_count = 0
+    destination_count = 0
+    for row in sources:
+        query = map_query(row["source_name"], row["address"], row["latitude"], row["longitude"])
+        first_query = first_query or query
+        compliance = latest.get(row["id"])
+        destination_query = None
+        if row["destination_name"]:
+            destination_query = map_query(
+                row["destination_name"],
+                row["destination_address"],
+                row["destination_latitude"],
+                row["destination_longitude"],
+            )
+        route_link = (
+            f'<a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_directions_url(query, destination_query))}">Route</a>'
+            if destination_query
+            else ""
+        )
+        cards.append(
+            f"""
+            <article class="map-card" data-location-type="source">
+                <div class="map-card-head">
+                    <span class="map-pin map-pin-source">Source</span>
+                    {status_badge(compliance['segregation_status'] if compliance else 'pending')}
+                </div>
+                <h3>{h(row['source_name'])}</h3>
+                <p>{h(labelize(row['source_type']))} - {h(row['zone'])}</p>
+                <dl>
+                    <div><dt>Organic estimate</dt><dd>{kg(row['estimated_organic_kg_per_day'])}/day</dd></div>
+                    <div><dt>Recyclable estimate</dt><dd>{kg(row['estimated_recyclable_kg_per_day'])}/day</dd></div>
+                    <div><dt>Active pickups</dt><dd>{h(active_pickups.get(row['id'], 0))}</dd></div>
+                    <div><dt>Collected total</dt><dd>{kg(collected_totals.get(row['id'], 0))}</dd></div>
+                    <div><dt>Destination</dt><dd>{h(row['destination_name'] or 'Unassigned')}</dd></div>
+                </dl>
+                <div class="map-actions">
+                    <button class="btn btn-small map-select" type="button" data-map-url="{h(google_embed_url(query))}">Show on map</button>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open</a>
+                    {route_link}
+                </div>
+            </article>
+            """
+        )
+        source_count += 1
+
+    for row in destinations:
+        query = map_query(row["destination_name"], row["address"], row["latitude"], row["longitude"])
+        first_query = first_query or query
+        cards.append(
+            f"""
+            <article class="map-card" data-location-type="destination">
+                <div class="map-card-head">
+                    <span class="map-pin map-pin-destination">Destination</span>
+                    <span class="badge badge-active">Active</span>
+                </div>
+                <h3>{h(row['destination_name'])}</h3>
+                <p>{h(labelize(row['destination_type']))}</p>
+                <dl>
+                    <div><dt>Address</dt><dd>{h(row['address'])}</dd></div>
+                    <div><dt>Contact</dt><dd>{h(row['contact_person'])}</dd></div>
+                    <div><dt>Phone</dt><dd>{h(row['contact_phone'])}</dd></div>
+                    <div><dt>Coordinates</dt><dd>{h(coordinate_pair(row) or 'Not set')}</dd></div>
+                </dl>
+                <div class="map-actions">
+                    <button class="btn btn-small map-select" type="button" data-map-url="{h(google_embed_url(query))}">Show on map</button>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Open</a>
+                </div>
+            </article>
+            """
+        )
+        destination_count += 1
+
+    initial_query = first_query or "Kota Kinabalu Sabah Malaysia"
+    body = f"""
+    <section class="metrics-grid compact">
+        {metric_card("Mapped Waste Sources", source_count, "Food and organic-waste generators", "green")}
+        {metric_card("Mapped Destinations", destination_count, "Compost and diversion sites", "blue")}
+    </section>
+    <section class="map-layout">
+        <div class="panel map-panel">
+            <div class="panel-heading">
+                <h2>Google Maps Location View</h2>
+                <p>Select a source or destination to inspect its location and operating information.</p>
+            </div>
+            <div class="map-frame-shell">
+                <iframe id="googleMapFrame" title="DBKK waste location map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="{h(google_embed_url(initial_query))}"></iframe>
+            </div>
+        </div>
+        <aside class="panel map-list-panel">
+            <div class="panel-heading">
+                <h2>Locations</h2>
+                <p>Use filters to focus on generators or compost destinations.</p>
+            </div>
+            <div class="map-filters" role="group" aria-label="Map location filters">
+                <button class="btn btn-small map-filter active" type="button" data-map-filter="all">All</button>
+                <button class="btn btn-small map-filter" type="button" data-map-filter="source">Sources</button>
+                <button class="btn btn-small map-filter" type="button" data-map-filter="destination">Destinations</button>
+            </div>
+            <input class="table-search" type="search" placeholder="Search locations..." data-location-search>
+            <div class="map-cards">{''.join(cards) if cards else empty_state('No mapped locations yet.')}</div>
+        </aside>
+    </section>"""
+    return layout(user, "map", "Map", body)
+
+
 def page_sources(user, params):
     require_role(user, {"admin"})
     source_type = params.get("type", [""])[0]
@@ -1065,8 +1989,29 @@ def page_sources(user, params):
         if edit_id:
             editing = conn.execute("SELECT * FROM waste_sources WHERE id=?", (edit_id,)).fetchone()
     table_rows = []
+    registry_cards = []
     for row in rows:
         comp = latest.get(row["id"])
+        query = map_query(row["source_name"], row["address"], row["latitude"], row["longitude"])
+        registry_cards.append(
+            f"""
+            <article class="source-registry-card">
+                <div class="source-registry-top">
+                    <span>{h(labelize(row['source_type']))}</span>
+                    {status_badge(comp['segregation_status'] if comp else 'pending')}
+                </div>
+                <h3>{h(row['source_name'])}</h3>
+                <p>{h(row['zone'])} - {h(row['destination_name'] or 'No compost site')}</p>
+                <div class="source-registry-metrics">
+                    <strong>{kg(row['estimated_organic_kg_per_day'])}/day</strong>
+                    <span>{kg(row['estimated_recyclable_kg_per_day'])}/day recyclable</span>
+                </div>
+                <div class="quick-actions">
+                    <a class="btn btn-small" href="/sources?edit={h(row['id'])}">Edit</a>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Map</a>
+                </div>
+            </article>"""
+        )
         table_rows.append(
             f"""
             <tr>
@@ -1077,6 +2022,7 @@ def page_sources(user, params):
                 <td>{kg(row['estimated_recyclable_kg_per_day'])}/day</td>
                 <td>{status_badge(comp['segregation_status'] if comp else 'pending')}</td>
                 <td>{h(row['destination_name'] or 'Unassigned')}</td>
+                <td><a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Map</a></td>
                 <td>{h(row['vendor_name'] or 'No account')}</td>
                 <td>{status_badge(row['status'])}</td>
                 <td><a class="btn btn-small" href="/sources?edit={h(row['id'])}">Edit</a></td>
@@ -1107,7 +2053,7 @@ def page_sources(user, params):
                 <tr>
                     <th>Source</th><th>Type</th><th>Zone</th><th>Organic Estimate</th>
                     <th>Recyclable Estimate</th><th>Compliance</th><th>Destination</th>
-                    <th>Vendor Account</th><th>Status</th><th></th>
+                    <th>Location</th><th>Vendor Account</th><th>Status</th><th></th>
                 </tr>
             </thead>
             <tbody>{''.join(table_rows)}</tbody>
@@ -1122,7 +2068,11 @@ def page_sources(user, params):
             </div>
             {filter_html}
             <input class="table-search" type="search" placeholder="Search sources..." data-table-search>
-            {table if rows else empty_state('No sources match the selected filters.')}
+            <div class="source-registry-grid">{''.join(registry_cards) if rows else empty_state('No sources match the selected filters.')}</div>
+            <details class="details-block">
+                <summary>Detailed records</summary>
+                {table if rows else ''}
+            </details>
         </div>
         <div class="panel">
             <div class="panel-heading">
@@ -1150,6 +2100,14 @@ def source_form(source, destinations, vendors):
         <label>Address
             <textarea name="address" rows="2">{h(source['address'] if source else '')}</textarea>
         </label>
+        <div class="split">
+            <label>Latitude
+                <input type="number" step="0.000001" name="latitude" value="{h(source['latitude'] if source else '')}" placeholder="5.981800">
+            </label>
+            <label>Longitude
+                <input type="number" step="0.000001" name="longitude" value="{h(source['longitude'] if source else '')}" placeholder="116.073100">
+            </label>
+        </div>
         <div class="split">
             <label>Zone
                 <input name="zone" value="{h(source['zone'] if source else '')}" placeholder="Central">
@@ -1197,13 +2155,35 @@ def page_destinations(user, params):
         destinations = conn.execute("SELECT * FROM destinations ORDER BY is_active DESC, destination_name").fetchall()
         editing = conn.execute("SELECT * FROM destinations WHERE id=?", (edit_id,)).fetchone() if edit_id else None
     rows = []
+    destination_cards = []
     for dest in destinations:
+        query = map_query(dest["destination_name"], dest["address"], dest["latitude"], dest["longitude"])
+        destination_cards.append(
+            f"""
+            <article class="source-registry-card">
+                <div class="source-registry-top">
+                    <span>{h(labelize(dest['destination_type']))}</span>
+                    <span class="badge badge-active">{'Active' if dest['is_active'] else 'Inactive'}</span>
+                </div>
+                <h3>{h(dest['destination_name'])}</h3>
+                <p>{h(dest['address'])}</p>
+                <dl class="compact-dl">
+                    <div><dt>Contact</dt><dd>{h(dest['contact_person'] or '-')}</dd></div>
+                    <div><dt>Phone</dt><dd>{h(dest['contact_phone'] or '-')}</dd></div>
+                </dl>
+                <div class="quick-actions">
+                    <a class="btn btn-small" href="/destinations?edit={h(dest['id'])}">Edit</a>
+                    <a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Map</a>
+                </div>
+            </article>"""
+        )
         rows.append(
             f"""
             <tr>
                 <td>{h(dest['destination_name'])}</td>
                 <td>{h(labelize(dest['destination_type']))}</td>
                 <td>{h(dest['address'])}</td>
+                <td><a class="btn btn-small" target="_blank" rel="noopener" href="{h(google_open_url(query))}">Map</a></td>
                 <td>{h(dest['contact_person'])}</td>
                 <td>{h(dest['contact_phone'])}</td>
                 <td>{'Active' if dest['is_active'] else 'Inactive'}</td>
@@ -1214,21 +2194,25 @@ def page_destinations(user, params):
     body = f"""
     <section class="content-grid sidebar-right">
         <div class="panel">
-            <div class="panel-heading">
-                <h2>Diversion Destinations</h2>
-                <p>Compost partners and future DBKK hubs used for delivery and intake confirmation.</p>
+            <div class="panel-heading compact-heading">
+                <h2>Compost Sites</h2>
+                <p>Receiving sites for diverted organic waste.</p>
             </div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Contact</th><th>Phone</th><th>Status</th><th></th></tr></thead>
-                    <tbody>{''.join(rows)}</tbody>
-                </table>
-            </div>
+            <div class="source-registry-grid">{''.join(destination_cards)}</div>
+            <details class="details-block">
+                <summary>Detailed records</summary>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Name</th><th>Type</th><th>Address</th><th>Location</th><th>Contact</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+                        <tbody>{''.join(rows)}</tbody>
+                    </table>
+                </div>
+            </details>
         </div>
         <div class="panel">
-            <div class="panel-heading">
+            <div class="panel-heading compact-heading">
                 <h2>{'Edit Destination' if editing else 'Add Destination'}</h2>
-                <p>Keep compost-site and diversion partner records current.</p>
+                <p>Keep site details current.</p>
             </div>
             {form}
         </div>
@@ -1251,6 +2235,14 @@ def destination_form(dest):
         <label>Address
             <textarea name="address" rows="2">{h(dest['address'] if dest else '')}</textarea>
         </label>
+        <div class="split">
+            <label>Latitude
+                <input type="number" step="0.000001" name="latitude" value="{h(dest['latitude'] if dest else '')}" placeholder="5.934800">
+            </label>
+            <label>Longitude
+                <input type="number" step="0.000001" name="longitude" value="{h(dest['longitude'] if dest else '')}" placeholder="116.049600">
+            </label>
+        </div>
         <div class="split">
             <label>Contact person
                 <input name="contact_person" value="{h(dest['contact_person'] if dest else '')}">
@@ -1283,8 +2275,33 @@ def page_compliance(user):
         ).fetchall()
         latest = latest_compliance_by_source(conn)
     summary_rows = []
+    monitor_cards = []
+    compliance_counts = {status: 0 for status in COMPLIANCE_STATUSES}
+    missing_compost_bins = 0
+    missing_recycle_bins = 0
     for source in sources:
         row = latest.get(source["id"])
+        status = row["segregation_status"] if row else "pending"
+        compliance_counts[status] = compliance_counts.get(status, 0) + 1
+        if not row or not row["has_compostable_bin"]:
+            missing_compost_bins += 1
+        if not row or not row["has_recyclable_bin"]:
+            missing_recycle_bins += 1
+        monitor_cards.append(
+            f"""
+            <article class="compliance-card">
+                <div class="source-registry-top">
+                    <span>{h(source['zone'])}</span>
+                    {status_badge(status)}
+                </div>
+                <h3>{h(source['source_name'])}</h3>
+                <div class="compliance-checks">
+                    <span class="{'check-yes' if row and row['has_compostable_bin'] else 'check-no'}">Compost bin: {yes_no(row['has_compostable_bin']) if row else 'No'}</span>
+                    <span class="{'check-yes' if row and row['has_recyclable_bin'] else 'check-no'}">Recycle bin: {yes_no(row['has_recyclable_bin']) if row else 'No'}</span>
+                </div>
+                <p>{h(row['contamination_notes'] if row else 'Needs inspection')}</p>
+            </article>"""
+        )
         summary_rows.append(
             f"""
             <tr>
@@ -1297,6 +2314,7 @@ def page_compliance(user):
                 <td>{h(row['contamination_notes'] if row else '')}</td>
             </tr>"""
         )
+    compliance_rate = int((compliance_counts.get("compliant", 0) / max(1, len(sources))) * 100)
     history_rows = []
     for row in records:
         history_rows.append(
@@ -1335,30 +2353,40 @@ def page_compliance(user):
         <button class="btn btn-primary" type="submit">Save Inspection</button>
     </form>"""
     body = f"""
+    <section class="metrics-grid four">
+        {metric_card("Compliance Rate", f"{compliance_rate}%", "Latest source inspections", "green")}
+        {metric_card("Compliant", compliance_counts.get("compliant", 0), "Ready for clean organic collection", "blue")}
+        {metric_card("Missing Compost Bins", missing_compost_bins, "Needs DBKK follow-up", "amber")}
+        {metric_card("Missing Recycle Bins", missing_recycle_bins, "Basic recyclable awareness", "rose")}
+    </section>
     <section class="content-grid sidebar-right">
         <div class="panel">
-            <div class="panel-heading">
-                <h2>Current Segregation Status</h2>
-                <p>Tracks whether compostable and recyclable waste is actually separated at source.</p>
+            <div class="panel-heading compact-heading">
+                <h2>Segregation Monitor</h2>
+                <p>Vendor readiness at a glance.</p>
             </div>
-            <div class="table-wrap">
-                <table data-filterable>
-                    <thead><tr><th>Source</th><th>Zone</th><th>Status</th><th>Compost Bin</th><th>Recycle Bin</th><th>Last Inspection</th><th>Notes</th></tr></thead>
-                    <tbody>{''.join(summary_rows)}</tbody>
-                </table>
-            </div>
+            <div class="compliance-card-grid">{''.join(monitor_cards)}</div>
             <div class="panel-heading tight"><h2>Inspection History</h2></div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Date</th><th>Source</th><th>Status</th><th>Compost Bin</th><th>Recycle Bin</th><th>Inspector</th><th>Remarks</th></tr></thead>
-                    <tbody>{''.join(history_rows)}</tbody>
-                </table>
-            </div>
+            <details class="details-block">
+                <summary>Detailed records</summary>
+                <div class="table-wrap">
+                    <table data-filterable>
+                        <thead><tr><th>Source</th><th>Zone</th><th>Status</th><th>Compost Bin</th><th>Recycle Bin</th><th>Last Inspection</th><th>Notes</th></tr></thead>
+                        <tbody>{''.join(summary_rows)}</tbody>
+                    </table>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Date</th><th>Source</th><th>Status</th><th>Compost Bin</th><th>Recycle Bin</th><th>Inspector</th><th>Remarks</th></tr></thead>
+                        <tbody>{''.join(history_rows)}</tbody>
+                    </table>
+                </div>
+            </details>
         </div>
         <div class="panel">
-            <div class="panel-heading">
+            <div class="panel-heading compact-heading">
                 <h2>Add Inspection</h2>
-                <p>Record source-separation readiness and contamination observations.</p>
+                <p>Update bins, status, and contamination notes.</p>
             </div>
             {form}
         </div>
@@ -1375,9 +2403,10 @@ def page_pickups(user):
             ).fetchall()
             rows = conn.execute(
                 """
-                SELECT pr.*, ws.source_name, NULL AS collector_name
+                SELECT pr.*, ws.source_name, d.destination_name, NULL AS collector_name
                 FROM pickup_requests pr
                 JOIN waste_sources ws ON ws.id=pr.waste_source_id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
                 WHERE ws.assigned_vendor_user_id=?
                 ORDER BY pr.requested_pickup_date DESC, pr.id DESC
                 """,
@@ -1388,9 +2417,10 @@ def page_pickups(user):
             sources = []
             rows = conn.execute(
                 """
-                SELECT pr.*, ws.source_name, u.name AS collector_name
+                SELECT pr.*, ws.source_name, d.destination_name, u.name AS collector_name
                 FROM pickup_requests pr
                 JOIN waste_sources ws ON ws.id=pr.waste_source_id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
                 LEFT JOIN users u ON u.id=pr.assigned_collector_user_id
                 WHERE pr.assigned_collector_user_id=?
                 ORDER BY pr.requested_pickup_date DESC, pr.id DESC
@@ -1402,9 +2432,10 @@ def page_pickups(user):
             sources = conn.execute("SELECT id, source_name FROM waste_sources WHERE status='active' ORDER BY source_name").fetchall()
             rows = conn.execute(
                 """
-                SELECT pr.*, ws.source_name, u.name AS collector_name
+                SELECT pr.*, ws.source_name, d.destination_name, u.name AS collector_name
                 FROM pickup_requests pr
                 JOIN waste_sources ws ON ws.id=pr.waste_source_id
+                LEFT JOIN destinations d ON d.id=ws.default_destination_id
                 LEFT JOIN users u ON u.id=pr.assigned_collector_user_id
                 ORDER BY
                     CASE pr.status
@@ -1422,10 +2453,10 @@ def page_pickups(user):
     form = ""
     if can_create:
         form = f"""
-        <div class="panel">
-            <div class="panel-heading">
-                <h2>New Pickup Request</h2>
-                <p>Create scheduled or on-demand compostable waste pickups.</p>
+        <div class="panel request-panel">
+            <div class="panel-heading compact-heading">
+                <h2>{'Request Pickup' if user['role'] == 'vendor' else 'Create Pickup'}</h2>
+                <p>Only the essential pickup details are shown first.</p>
             </div>
             <form method="post" action="/pickups/create" class="form-stack">
                 <label>Waste source
@@ -1448,18 +2479,29 @@ def page_pickups(user):
                 <button class="btn btn-primary" type="submit">Submit Request</button>
             </form>
         </div>"""
-    body = f"""
-    <section class="content-grid {'sidebar-right' if can_create else 'single'}">
-        <div class="panel">
-            <div class="panel-heading">
-                <h2>Pickup Requests & Schedule</h2>
-                <p>Separate organic collection workflow for scheduled and on-demand sources.</p>
+    if user["role"] == "vendor":
+        body = f"""
+        <section class="content-grid sidebar-right">
+            <div class="panel">
+                <div class="panel-heading compact-heading">
+                    <h2>My Pickup History</h2>
+                    <p>Track pickup requests without the spreadsheet clutter.</p>
+                </div>
+                {pickup_cards(rows, user)}
             </div>
-            {pickup_table(rows, True, user['role'] == 'admin', user['role'] == 'admin', user, collectors)}
+            {form}
+        </section>"""
+        return layout(user, "pickups", "Request Pickup", body)
+    body = f"""
+    <section class="panel board-panel">
+        <div class="panel-heading compact-heading">
+            <h2>{'Pickup Board' if user['role'] == 'admin' else 'My Pickup Board'}</h2>
+            <p>Cards are grouped by what needs to happen next.</p>
         </div>
-        {form}
-    </section>"""
-    return layout(user, "pickups", "Pickup Requests", body)
+        {pickup_board(rows, user, collectors)}
+    </section>
+    {form if user['role'] == 'admin' else ''}"""
+    return layout(user, "pickups", "Pickup Board", body)
 
 
 def page_collections(user):
@@ -1840,6 +2882,46 @@ def page_recyclables(user):
     return layout(user, "recyclables", "Recyclables", body)
 
 
+def page_history(user):
+    if user["role"] != "vendor":
+        return page_pickups(user)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT pr.*, ws.source_name, d.destination_name, NULL AS collector_name
+            FROM pickup_requests pr
+            JOIN waste_sources ws ON ws.id=pr.waste_source_id
+            LEFT JOIN destinations d ON d.id=ws.default_destination_id
+            WHERE ws.assigned_vendor_user_id=?
+            ORDER BY pr.requested_pickup_date DESC, pr.id DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+        collected = conn.execute(
+            """
+            SELECT COALESCE(SUM(c.actual_organic_kg), 0) AS kg
+            FROM collections c
+            JOIN pickup_requests pr ON pr.id=c.pickup_request_id
+            JOIN waste_sources ws ON ws.id=pr.waste_source_id
+            WHERE ws.assigned_vendor_user_id=?
+            """,
+            (user["id"],),
+        ).fetchone()["kg"]
+    body = f"""
+    <section class="metrics-grid compact">
+        {metric_card("Total Collected", kg(collected), "Organic waste collected from your source", "green")}
+        {metric_card("Pickup Requests", len(rows), "All request statuses", "blue")}
+    </section>
+    <section class="panel">
+        <div class="panel-heading compact-heading">
+            <h2>Pickup History</h2>
+            <p>Card view of your previous and upcoming pickup requests.</p>
+        </div>
+        {pickup_cards(rows, user)}
+    </section>"""
+    return layout(user, "history", "History", body)
+
+
 def page_reports(user):
     require_role(user, {"admin"})
     with db() as conn:
@@ -1938,6 +3020,8 @@ def save_source(form):
         form.get("source_name", "").strip(),
         form.get("source_type", "restaurant"),
         form.get("address", "").strip(),
+        parse_float(form.get("latitude")) if form.get("latitude", "").strip() else None,
+        parse_float(form.get("longitude")) if form.get("longitude", "").strip() else None,
         form.get("zone", "").strip(),
         form.get("contact_person", "").strip(),
         form.get("contact_phone", "").strip(),
@@ -1951,7 +3035,7 @@ def save_source(form):
         execute(
             """
             UPDATE waste_sources SET
-                source_name=?, source_type=?, address=?, zone=?, contact_person=?, contact_phone=?,
+                source_name=?, source_type=?, address=?, latitude=?, longitude=?, zone=?, contact_person=?, contact_phone=?,
                 estimated_organic_kg_per_day=?, estimated_recyclable_kg_per_day=?, status=?,
                 assigned_vendor_user_id=?, default_destination_id=?
             WHERE id=?
@@ -1962,11 +3046,11 @@ def save_source(form):
         execute(
             """
             INSERT INTO waste_sources (
-                source_name, source_type, address, zone, contact_person, contact_phone,
+                source_name, source_type, address, latitude, longitude, zone, contact_person, contact_phone,
                 estimated_organic_kg_per_day, estimated_recyclable_kg_per_day, status,
                 assigned_vendor_user_id, default_destination_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             params,
         )
@@ -1978,6 +3062,8 @@ def save_destination(form):
         form.get("destination_name", "").strip(),
         form.get("destination_type", "compost_hub"),
         form.get("address", "").strip(),
+        parse_float(form.get("latitude")) if form.get("latitude", "").strip() else None,
+        parse_float(form.get("longitude")) if form.get("longitude", "").strip() else None,
         form.get("contact_person", "").strip(),
         form.get("contact_phone", "").strip(),
         bool_from_form(form.get("is_active", "")),
@@ -1986,7 +3072,7 @@ def save_destination(form):
         execute(
             """
             UPDATE destinations SET
-                destination_name=?, destination_type=?, address=?, contact_person=?, contact_phone=?, is_active=?
+                destination_name=?, destination_type=?, address=?, latitude=?, longitude=?, contact_person=?, contact_phone=?, is_active=?
             WHERE id=?
             """,
             params + (dest_id,),
@@ -1995,8 +3081,8 @@ def save_destination(form):
         execute(
             """
             INSERT INTO destinations
-                (destination_name, destination_type, address, contact_person, contact_phone, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (destination_name, destination_type, address, latitude, longitude, contact_person, contact_phone, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             params,
         )
@@ -2068,6 +3154,89 @@ def update_pickup(form):
             parse_int(form.get("assigned_collector_user_id", "")),
             parse_int(form.get("id")),
         ),
+    )
+
+
+def ensure_pickup_worker_access(pickup, user):
+    if user["role"] == "admin":
+        return
+    if user["role"] == "collector" and pickup["assigned_collector_user_id"] == user["id"]:
+        return
+    raise PermissionError("This pickup is not assigned to you.")
+
+
+def start_pickup(form, user):
+    pickup_id = parse_int(form.get("id"))
+    pickup = query_one("SELECT * FROM pickup_requests WHERE id=?", (pickup_id,))
+    if not pickup:
+        raise ValueError("Pickup request not found.")
+    ensure_pickup_worker_access(pickup, user)
+    assigned_to = pickup["assigned_collector_user_id"] or (user["id"] if user["role"] == "collector" else None)
+    execute(
+        """
+        UPDATE pickup_requests
+        SET status='assigned', assigned_collector_user_id=?
+        WHERE id=?
+        """,
+        (assigned_to, pickup_id),
+    )
+
+
+def quick_collect_pickup(form, user):
+    pickup_id = parse_int(form.get("id"))
+    pickup = query_one(
+        """
+        SELECT pr.*, ws.default_destination_id
+        FROM pickup_requests pr
+        JOIN waste_sources ws ON ws.id=pr.waste_source_id
+        WHERE pr.id=?
+        """,
+        (pickup_id,),
+    )
+    if not pickup:
+        raise ValueError("Pickup request not found.")
+    ensure_pickup_worker_access(pickup, user)
+    existing = query_one("SELECT id FROM collections WHERE pickup_request_id=?", (pickup_id,))
+    if existing:
+        execute("UPDATE pickup_requests SET status='collected' WHERE id=?", (pickup_id,))
+        return
+    execute_many(
+        [
+            (
+                """
+                INSERT INTO collections (
+                    pickup_request_id, collected_at, actual_organic_kg, contamination_flag,
+                    contamination_notes, collected_by_user_id, destination_id, delivery_status
+                )
+                VALUES (?, ?, ?, 0, ?, ?, ?, 'pending_delivery')
+                """,
+                (
+                    pickup_id,
+                    now_iso(),
+                    parse_float(pickup["estimated_organic_kg"]),
+                    "Quick collected from pickup board.",
+                    user["id"],
+                    pickup["default_destination_id"],
+                ),
+            ),
+            ("UPDATE pickup_requests SET status='collected' WHERE id=?", (pickup_id,)),
+        ]
+    )
+
+
+def report_pickup_issue(form, user):
+    pickup_id = parse_int(form.get("id"))
+    pickup = query_one("SELECT * FROM pickup_requests WHERE id=?", (pickup_id,))
+    if not pickup:
+        raise ValueError("Pickup request not found.")
+    ensure_pickup_worker_access(pickup, user)
+    execute(
+        """
+        UPDATE pickup_requests
+        SET status='failed', notes=TRIM(COALESCE(notes,'') || ?)
+        WHERE id=?
+        """,
+        ("\nIssue reported from pickup board.", pickup_id),
     )
 
 
@@ -2269,6 +3438,8 @@ class App(BaseHTTPRequestHandler):
                 return self.redirect("/login")
             if path == "/dashboard":
                 return self.send_html(page_dashboard(user))
+            if path == "/map":
+                return self.redirect("/dashboard")
             if path == "/sources":
                 return self.send_html(page_sources(user, params))
             if path == "/destinations":
@@ -2285,6 +3456,8 @@ class App(BaseHTTPRequestHandler):
                 return self.send_html(page_outputs(user))
             if path == "/recyclables":
                 return self.send_html(page_recyclables(user))
+            if path == "/history":
+                return self.send_html(page_history(user))
             if path == "/reports":
                 return self.send_html(page_reports(user))
             if path == "/reports/export":
@@ -2326,6 +3499,18 @@ class App(BaseHTTPRequestHandler):
             if path == "/pickups/update":
                 require_role(user, {"admin"})
                 update_pickup(form)
+                return self.redirect("/pickups")
+            if path == "/pickups/start":
+                require_role(user, {"admin", "collector"})
+                start_pickup(form, user)
+                return self.redirect("/pickups")
+            if path == "/pickups/quick-collect":
+                require_role(user, {"admin", "collector"})
+                quick_collect_pickup(form, user)
+                return self.redirect("/pickups")
+            if path == "/pickups/report-issue":
+                require_role(user, {"admin", "collector"})
+                report_pickup_issue(form, user)
                 return self.redirect("/pickups")
             if path == "/collections/save":
                 require_role(user, {"admin", "collector"})
