@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "dbkk_organic.db"
+DB_PATH = Path(os.environ.get("DATABASE_PATH", str(DATA_DIR / "dbkk_organic.db")))
 STATIC_DIR = BASE_DIR / "static"
 SESSION_STORE = {}
 PASSWORD_ITERATIONS = 140_000
@@ -123,7 +123,7 @@ def verify_password(password, stored):
 
 
 def db():
-    DATA_DIR.mkdir(exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -3427,6 +3427,8 @@ class App(BaseHTTPRequestHandler):
             path, params = self.path_and_query()
             if path.startswith("/static/"):
                 return self.serve_static(path)
+            if path == "/health":
+                return self.send_html("ok")
             if path == "/login":
                 return self.send_html(render_login())
             if path == "/logout":

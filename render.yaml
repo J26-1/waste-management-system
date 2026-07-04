@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: waste-management-system
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: python -m py_compile app.py
+    startCommand: python app.py
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PYTHON_VERSION
+        value: 3.12.3
