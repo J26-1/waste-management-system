@@ -13,6 +13,7 @@ It covers:
 - compost output tracking
 - lightweight recyclable records
 - dashboard KPIs and CSV reports
+- dashboard-integrated Google Maps operations view for sources, pickups, compliance, and compost destinations
 
 ## Run It
 
@@ -54,6 +55,17 @@ data\dbkk_organic.db
 ```
 
 To reset the seeded demo data, stop the app, delete `data\dbkk_organic.db`, and run `python app.py` again.
+
+## Dashboard Operations Map
+
+The admin dashboard uses Google Maps embed and search links, so no Google Cloud API key is required.
+
+Waste sources and destinations include latitude and longitude fields. Edit these in:
+
+- `Waste Sources`
+- `Destinations`
+
+The dashboard operations map shows colored source and compost-site markers. Clicking a marker opens the connected pickup attention, segregation, collection, route, and compost-site information.
 
 ## V1 Boundary
 
